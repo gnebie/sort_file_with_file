@@ -37,11 +37,6 @@ const char *alphabet_propre[]       = {"à","â","æ","ç","è","é","ê","ë","
 const char *alphabet_propre_upper[]   = {"À","Â","Æ","Ç","È","É","Ê","Ë","Î","Ï","Ô","Œ","Ù","Û","Ü","Ÿ", NULL};
 #define START_ALPHABET_PROPRE (sizeof(alphabet_simple) + sizeof(alphabet_ponctuation))
 
-void		delete_dico_tree(t_dico_tree *dico_tree)
-{
-	(void)dico_tree;
-}
-
 int		get_alphabet_id(char *str, int *size)
 {
 	char		c = *str;
@@ -73,7 +68,6 @@ int		change_alphabet(char *str, size_t size)
 	while (i < size)
 	{
 		c = str[i];
-		printf("%c\n", c);
 		if (c >= 'A' && c <= 'Z')
 		{
 			str[i] = c - 'A' + 'a';
@@ -178,6 +172,7 @@ typedef struct	s_alphabet
 
 }				t_alphabet;
 
+#define ALPHABET_SIZE (sizeof(t_alphabet) / 8)
 
 typedef struct	s_sources
 {
@@ -195,9 +190,9 @@ typedef struct	s_sources
 
 typedef struct	s_dico_branch
 {
-	void		*prev;
 	t_alphabet	alpha;
-	int			*end_id;
+	void		*prev;
+	int			end_id;
 }				t_dico_branch;
 
 typedef struct	s_dico_tree
@@ -205,6 +200,36 @@ typedef struct	s_dico_tree
 	t_alphabet	alpha;
 	char		print_buffer[PRINT_BUFF_SIZE];
 }				t_dico_tree;
+
+void		delete_dico_branch(t_dico_branch *dico)
+{
+	void		**ab = NULL;
+	size_t			i = 0;
+
+	ab = (void *)&dico->alpha;
+	while (i < ALPHABET_SIZE)
+	{
+		if (ab[i])
+			delete_dico_branch(ab[i]);
+		i++;
+	}
+	free(dico);
+}
+
+void		delete_dico_tree(t_dico_tree *dico_tree)
+{
+	void			**ab = NULL;
+	size_t			i = 0;
+
+	ab = (void *)&dico_tree->alpha;
+	while (i < ALPHABET_SIZE)
+	{
+		if (ab[i])
+			delete_dico_branch(ab[i]);
+		ab[i] = NULL;
+		i++;
+	}
+}
 
 void		sys_error(char *message, char *file, int line)
 {
@@ -278,24 +303,105 @@ size_t		get_source_line(char **line)
 	return size;
 }
 
-int		create_dictionnary_from_line(char *line, size_t size, t_dico_tree *dico, size_t tab_id)
+t_dico_branch		*create_dico_branch(void *prev)
+{
+	t_dico_branch *branch = calloc(sizeof(t_dico_branch), 1);
+	branch->end_id = -1;
+	branch->prev = prev;
+	return branch;
+}
+
+int		create_dictionnary_from_line(char *line, size_t size, size_t tab_id, t_dico_branch *dico_branch)
 {
 	int			inc_size;
-	size_t		i;
 	int			nbr;
+	void		**ab = NULL;
 
-	while (i < size)
+	if (size == 0)
 	{
-		nbr = get_alphabet_id(&line[i], &inc_size);
-		if (nbr == -1)
-		{
-			printf("c'est un bug");
-			delete_dico_tree(dico);
-			return (-1)
-		}
+		dico_branch->end_id = tab_id;
+		return 0;
+	}
+	ab = (void *)&dico_branch->alpha;
+	nbr = get_alphabet_id(line, &inc_size);
+	if (nbr == -1)
+	{
+		printf("c'est un bug");
+		return (-1);
+	}
+	if (ab[nbr] == NULL)
+	{
+		// printf("no create : %s ", line);
+		ab[nbr] = create_dico_branch(dico_branch);
+	}
+	size -= inc_size;
+	line += inc_size;
+	int ret = create_dictionnary_from_line(line, size, tab_id, ab[nbr]);
 
-		i += inc_size;
-		;
+	return (ret);
+}
+
+int		create_dictionnary_from_line_begin(char *line, size_t size, t_dico_tree *dico, size_t tab_id)
+{
+	int			inc_size;
+	int			nbr;
+	void		**ab = NULL;
+
+	ab = (void *)&dico->alpha;
+	nbr = get_alphabet_id(line, &inc_size);
+	if (nbr == -1)
+	{
+		printf("c'est un bug");
+		delete_dico_tree(dico);
+		return (-1);
+	}
+	if (ab[nbr] == NULL)
+	{
+		// printf("no create : %s ", line);
+		ab[nbr] = create_dico_branch(dico);
+	}
+	size -= inc_size;
+	line += inc_size;
+	int ret = create_dictionnary_from_line(line, size, tab_id, ab[nbr]);
+	if (ret == -1)
+		delete_dico_tree(dico);
+	return ret;
+}
+
+
+void	print_first(t_dico_branch *dico_branch)
+{
+	void		**ab = NULL;
+	size_t			i = 0;
+
+	ab = (void *)&dico_branch->alpha;
+	while (i < ALPHABET_SIZE)
+	{
+		if (ab[i])
+		{
+			printf("%zu\n", i);
+			print_first(ab[i]);
+			return ;
+		}
+		i++;
+	}
+}
+
+
+void	count_dico(t_dico_branch *dico_branch, int *count)
+{
+	void		**ab = NULL;
+	size_t			i = 0;
+
+	ab = (void *)&dico_branch->alpha;
+	while (i < ALPHABET_SIZE)
+	{
+		if (ab[i])
+		{
+			(*count)++;
+			count_dico(ab[i], count);
+		}
+		i++;
 	}
 }
 
@@ -312,11 +418,16 @@ int		create_dictionnary(t_sources *source, t_dico_tree *dico)
 		size = get_source_line(&line);
 		if (change_alphabet(line, size) == -1)
 			SYSERROR("change_alphabet", 0)
-		if (create_dictionnary_from_line(line, size, dico, i))
+		if (create_dictionnary_from_line_begin(line, size, dico, i))
 			SYSERROR("create_dictionnary_from_line", -1)
-		printf("%.*s\n", (int)size, line);
+		// printf("%.*s\n", (int)size, line);
 		i++;
 	}
+	// print_first((void *)dico);
+	int count_dico_nbr = 0;
+
+	count_dico((void *)dico, &count_dico_nbr);
+	printf("%d\n", count_dico_nbr);
 	return (0);
 }
 
@@ -337,7 +448,7 @@ int				get_tab_from_source(t_sources *sources)
 	readed = read(fd, buffer + sources->last_elem_size, READ_LINE_SOUCRE_SIZE);
 	save_read = readed;
 	readed += sources->last_elem_size;
-	if (readed + sources->last_elem_size <= 0)
+	if (readed <= 0)
 	{
 		ft_memdel((void *)&buffer);
 		return (readed);
@@ -364,7 +475,7 @@ int				get_tab_from_source(t_sources *sources)
 	}
 	delete_sources(sources);
 	count_lines = count_elem(buffer, readed, '\n');
-	if (!(elem_table = malloc(count_lines * sizeof(char *))))
+	if (!(elem_table = malloc((count_lines + 1) * sizeof(char *))))
 	{
 		ft_memdel((void *)&buffer);
 		SYSERROR("elem_table = malloc fail", -1)
@@ -421,10 +532,12 @@ int		sort_file_with_file(int *fd_tab)
 	int				ret = 1;
 
 	source.fd = fd_tab[0];
+	bzero((void *)&dico_tree, sizeof(t_dico_tree));
 
 	while (ret)
 	{
 		ret = run_sort_file_with_file(&source, &dico_tree);
+		break ;
 	}
 	delete_sources(&source);
 	delete_dico_tree(&dico_tree);
