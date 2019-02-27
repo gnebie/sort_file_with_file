@@ -17,7 +17,12 @@ const char alphabet_ponctuation[]   = " '-"; /*  */
 const char *alphabet_propre[]       = {"à","â","æ","ç","è","é","ê","ë","î","ï","ô","œ","ù","û","ü","ÿ", NULL};
 const char *alphabet_propre_upper[]   = {"À","Â","Æ","Ç","È","É","Ê","Ë","Î","Ï","Ô","Œ","Ù","Û","Ü","Ÿ", NULL};
 
+static void *g_dico = NULL;
+static void *g_source = NULL;
+static void *g_check_file = NULL;
+
 #define START_ALPHABET_PROPRE (sizeof(alphabet_simple) + sizeof(alphabet_ponctuation))
+// #define DEBUG
 
 typedef struct	s_tread_object
 {
@@ -26,8 +31,35 @@ typedef struct	s_tread_object
 	int				line_nbr;
 }				t_tread_object;
 
-#define TREADS_SIZE 1
+#define TREADS_SIZE 16
 pthread_mutex_t mutex;
+
+
+
+int g_i = 0;
+int g_j = 0;
+
+
+
+char	*get_element_in_line_check_file(char *line)
+{
+
+	int i = 0;
+	while(line[i] && line[i] != '\n')
+		i++;
+	line[i] = 0;
+	return line;
+
+
+	while (*line && *line != '\t')
+		line++;
+	if (*line)
+		line++;
+	while (line[i] && line[i] != '\t')
+		i++;
+	line[i] = '\0';
+	return (line);
+}
 
 int		get_alphabet_id(char *str, int *size)
 {
@@ -50,6 +82,10 @@ int		get_alphabet_id(char *str, int *size)
 			return i + START_ALPHABET_PROPRE;
 		i++;
 	}
+#ifdef DEBUG
+	write(1, str, strlen(str));
+	write(1, "\n", 1);
+#endif
 	return -1;
 }
 
@@ -170,7 +206,6 @@ int			count_elem(char *buffer, size_t size, char elem)
 	return (count_lines);
 }
 
-
 void		delete_sources(t_sources *sources)
 {
 	ft_memdel((void *)&(sources->buffer));
@@ -194,6 +229,7 @@ size_t		get_source_line(char **line)
 
 t_dico_branch		*create_dico_branch(void *prev)
 {
+	g_j++;
 	t_dico_branch *branch = calloc(sizeof(t_dico_branch), 1);
 	branch->end_id = -1;
 	branch->prev = prev;
@@ -220,7 +256,7 @@ int		create_dictionnary_from_line(char *line, size_t size, size_t tab_id, t_dico
 	}
 	if (ab[nbr] == NULL)
 	{
-		// printf("no create : %s ", line);
+		// printf("no create : %s nbr %i\n", line, nbr);
 		ab[nbr] = create_dico_branch(dico_branch);
 	}
 	size -= inc_size;
@@ -268,8 +304,10 @@ void	print_first(t_dico_branch *dico_branch)
 	{
 		if (ab[i])
 		{
+#ifdef DEBUG
 			printf("%zu\n", i);
 			print_first(ab[i]);
+#endif
 			return ;
 		}
 		i++;
@@ -334,7 +372,7 @@ int				get_tab_from_source(t_sources *sources)
 	if (sources->last_elem)
 		memcpy(buffer, sources->last_elem, sources->last_elem_size);
 	readed = read(fd, buffer + sources->last_elem_size, READ_LINE_SOUCRE_SIZE);
-	printf("readed %d %d \n", sources->fd, readed);
+	// printf("readed %d %d \n", sources->fd, readed);
 	save_read = readed;
 	readed += sources->last_elem_size;
 	if (readed <= 0)
@@ -403,7 +441,7 @@ int			open_files(char *file_source, char *file_cmp, char *file_dest, int *fd_tab
 
 int		print_id(t_dico_tree *dico, int id)
 {
-	printf("find : %s", dico->source->table[id]);
+	printf("find : [%s] %i %i\n", dico->source->table[id], ++g_i, g_j);
 	return (0);
 }
 
@@ -412,6 +450,10 @@ int		dico_print_by_id(t_dico_branch *dico_branch, t_dico_tree *dico_tree)
 	int ret = pthread_mutex_lock(&mutex);
 	if (ret == -1)
 		return (ret);
+	if (dico_branch->end_id == -2)
+		return (pthread_mutex_unlock(&mutex));
+
+
 	void			**ab = NULL;
 	size_t			i;
 
@@ -436,20 +478,8 @@ int		dico_print_by_id(t_dico_branch *dico_branch, t_dico_tree *dico_tree)
 				return (pthread_mutex_unlock(&mutex));
 			i++;
 		}
-		void *tmp = dico_branch;
+		dico_branch->end_id = -2;
 		dico_branch = dico_branch->prev;
-		free(tmp);
-		ab = (void *)&dico_branch->alpha;
-		i = 0;
-		while (i < ALPHABET_SIZE)
-		{
-			if (ab[i] == tmp)
-			{
-				ab[i] = NULL;
-				break ;
-			}
-			i++;
-		}
 	}
 	return pthread_mutex_unlock(&mutex);
 }
@@ -460,18 +490,27 @@ int		test_line(char *line, t_dico_branch *dico_branch, t_dico_tree *dico_tree)
 	int			al_id = 0;
 	void		**ab = NULL;
 
-	printf("line : %c\n", *line);
+#ifdef DEBUG
+	printf("line : %c  line :%s\n", *line, line);
+#endif
+	if (!dico_branch || dico_branch->end_id == -2)
+		return (0);
 	if (dico_branch->end_id != -1)
 		if (dico_print_by_id(dico_branch, dico_tree))
-			SYSERROR("test_line_begin", -1)
+			SYSERROR("mutex error", -1)
 	if (*line == '\0')
 		return (0);
+	// printf("get_alphabet_id begin\n");
+
 	if ((al_id = get_alphabet_id(line, &nbr)) == -1)
-		SYSERROR("test_line_begin", -1)
+		// SYSERROR("test_line get alphabect", -1)
+		return 0;
 	line += nbr;
+	// printf("get_alphabet_id passed\n");
 	ab = (void *)&dico_branch->alpha;
 	if (test_line(line, ab[al_id], dico_tree) == -1)
-		SYSERROR("test_line_begin", -1)
+		// SYSERROR("test_line", -1)
+		return 0;
 	return (0);
 }
 
@@ -481,16 +520,20 @@ int		test_line_begin(char *line, t_dico_tree *dico_tree)
 	int			al_id = 0;
 	void		**ab = NULL;
 
-	if (*line == '\0')
-		return (0);
-	if ((al_id = get_alphabet_id(line, &nbr)) == -1)
-		SYSERROR("test_line_begin", -1)
-	line += nbr;
-
-	printf("hello\n");
-	ab = (void *)&dico_tree->alpha;
-	if (test_line(line, ab[al_id], dico_tree) == -1)
-		SYSERROR("test_line_begin", -1)
+	while (*line != '\0')
+	{
+#ifdef DEBUG
+		printf("begin line : %c  line :%s\n", *line, line);
+#endif
+		if ((al_id = get_alphabet_id(line, &nbr)) == -1)
+			// SYSERROR("test_line_begin 1", -1)
+			return 0;
+		line += nbr;
+		ab = (void *)&dico_tree->alpha;
+		if (test_line(line, ab[al_id], dico_tree) == -1)
+			// SYSERROR("test_line_begin 2", -1)
+			return 0;
+	}
 	return (0);
 }
 
@@ -500,18 +543,20 @@ void	*test_tread_lines(void *treads_obj)
 	size_t				i = tread_obj->line_nbr;
 	t_dico_tree			*dico_tree = tread_obj->dico_tree;
 	t_sources			*check_file = tread_obj->check_file;
+	char				*line = NULL;
 
-	printf("thread %d hello \n", tread_obj->line_nbr);
+	// printf("thread %d hello \n", tread_obj->line_nbr);
 
-	printf("%zu\n", check_file->table_size);
+	// printf("%zu\n", check_file->table_size);
 	while (i < check_file->table_size)
 	{
-		printf("%s\n", check_file->table[i]);
-		test_line_begin(check_file->table[i], dico_tree);
+		line = get_element_in_line_check_file(check_file->table[i]);
+		// printf("%s\n", line);
+		test_line_begin(line, dico_tree);
 		i += TREADS_SIZE;
 	}
 	free(tread_obj);
-	printf("exit \n");
+	// printf("exit \n");
 	pthread_exit(NULL);
 }
 
@@ -537,7 +582,7 @@ int		test_check_file_lines(t_dico_tree *dico_tree, t_sources *check_file)
 		if (pthread_join(treads[i++], NULL))
 			SYSERROR("pthread_join", -1)
 	}
-	printf("end join \n");
+	// printf("end join \n");
 	return(0);
 
 }
@@ -549,9 +594,10 @@ int		search_in_dico(t_dico_tree *dico_tree, t_sources *check_file)
 	ret = get_tab_from_source(check_file);
 	while (ret > 0)
 	{
+		g_check_file = check_file;
 		test_check_file_lines(dico_tree, check_file);
 		delete_sources(check_file);
-		return 0;
+		// return 0; // TODO delete this line
 		ret = get_tab_from_source(check_file);
 	}
 	delete_sources(check_file);
@@ -569,10 +615,12 @@ int		run_sort_file_with_file(t_sources *source, t_dico_tree *dico_tree, t_source
 
 	if ((ret = get_tab_from_source(source)) < 0)
 		SYSERROR("get_tab_from_source malloc error", ret)
+	g_source = source; // TODO utile?
 	if (ret == 0)
 		return ret;
 	if (create_dictionnary(source, dico_tree) < 0)
 		SYSERROR("create_dictionnary malloc error", -1)
+	g_dico = dico_tree; // TODO utile?
 	if (search_in_dico(dico_tree, check_file) == -1)
 		SYSERROR("create_dictionnary malloc error", -1)
 	return 1;
@@ -592,7 +640,7 @@ int		sort_file_with_file(int *fd_tab)
 	while (ret)
 	{
 		ret = run_sort_file_with_file(&source, &dico_tree, &check_file);
-		break ;
+		// break ;
 		if (return_to_begin(check_file.fd))
 			SYSERROR("create_dictionnary malloc error", -1)
 	}
@@ -618,6 +666,6 @@ int			main(int argc, char **argv)
 
 	if (close_files(fd_tab))
 		SYSERROR("close error : ", -1)
-	getchar();
+	// getchar();
 	return 0;
 }
